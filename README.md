@@ -275,37 +275,6 @@ dbt run -m customer_orders
 dbt run -m fct_customer_orders
 ```
 
-- As the following turtorial,  you would constantly ensure any changes make to the fct_customer_orders.sql file does not have unintended consequences causing a drift between the old and new versions.
-- Let's import `audit_helper` to make it possible real quick!
-- Create a file `packages.yml` in the root folder
-``` yaml
-packages:
-  - package: dbt-labs/audit_helper
-    version: 0.12.0
-```
-Run `dbt deps` in the command line
-
-- Within the analysis folder, add a new file: `compare_queries.sql`
-Paste the following into the `compare_queries.sql` file:
-```SQL
-{% set old_etl_relation=ref('customer_orders') %} 
-
-{% set dbt_relation=ref('fct_customer_orders') %}
-
-{{ 
-audit_helper.compare_relations(
-        a_relation=old_etl_relation,
-        b_relation=dbt_relation,
-        primary_key="order_id"
-) }}
-```
-Run `dbt compile` in the command line
-Then, look for the compiled SQL file in `target/compiled/dbt_refactor/analyses/compare_queries.sql`.
-Run this SQL using power-DBT's `Execute dbt's SQL` or any data visualization tool.
-
-You will see showing 100% percent_of_total match between the two files, because so far they are exactly the same!
-See more at [dbt_audit_helper](https://hub.getdbt.com/dbt-labs/audit_helper/latest/)
-
 ## [6 Implement Sources by Translating Hard Coded Table References and Choosing Refactoring Strategies​](https://learn.getdbt.com/learn/course/refactoring-sql-for-modularity/part-2-practice-refactoring-90min/practice-refactoring?page=3)
 
 Now we can look at this __legacy__ code. It has poor readability, hard to maintaince and confusing. The first thing we could do is keep all table and column name in consistency by making letters into lower case.
@@ -1252,28 +1221,39 @@ final as (
 select * from final
 ```
 
-And you're done!
+And you're done! Conduct `dbt run` to build all the project.
 
-## [10 Auditing]()
+## [10 Auditing](https://learn.getdbt.com/learn/course/refactoring-sql-for-modularity/part-2-practice-refactoring-90min/practice-refactoring?page=6)
 
-If you have checked the compiled SQL in the `target/compiled` folder, you might have noticed that this code results in a lot of white space.
-
-Let's git rid of it with whitespace control we have learnt from [Jinja2-101-template](https://github.com/saastool/jinja2-101) in order to tidy up our code:
-
-```SQL
-{%- set payment_methods = ["bank_transfer", "credit_card", "gift_card"] -%}
-
-select
-order_id,
-{%- for payment_method in payment_methods %}
-sum(case when payment_method = '{{payment_method}}' then amount end) as {{payment_method}}_amount
-{%- if not loop.last %},{% endif -%}
-{% endfor %}
-from {{ ref('raw_payments') }}
-group by 1
+- Let's ensure any changes make to the `fct_customer_orders.sql` file does not have unintended consequences causing a drift between the old and new versions.
+  
+- Import `audit_helper` to make it possible real quick!
+- Create a file `packages.yml` in the root folder
+``` yaml
+packages:
+  - package: dbt-labs/audit_helper
+    version: 0.12.0
 ```
+Run `dbt deps` in the command line
 
-- Execute dbt run.
+- Within the analysis folder, add a new file: `compare_queries.sql`
+Paste the following into the `compare_queries.sql` file:
+```SQL
+{% set old_etl_relation=ref('customer_orders') %} 
 
+{% set dbt_relation=ref('fct_customer_orders') %}
 
-Our dbt-macros-packages turtorial ends here, we have learnt the potential of jinja with dbt, macro and package. This is just the tip of the iceberg, but it's enough to prepared anyone planning to dive in to any project that use dbt. Much more, if you want to learn more about what else can the packages do, please check in [dbt-util](https://github.com/dbt-labs/dbt-utils).
+{{ 
+audit_helper.compare_relations(
+        a_relation=old_etl_relation,
+        b_relation=dbt_relation,
+        primary_key="order_id"
+) }}
+```
+Run `dbt compile` in the command line
+
+Then, look for the compiled SQL file in `target/compiled/dbt_refactor/analyses/compare_queries.sql`.
+Run this SQL using power-DBT's `Execute dbt's SQL` or any data visualization tool.
+
+It should be showing 100% percent_of_total match between the two files, which means we have successfully refactor legacy SQL!
+See more at [dbt_audit_helper](https://hub.getdbt.com/dbt-labs/audit_helper/latest/)
