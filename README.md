@@ -343,6 +343,7 @@ After simple code cleanse, now we want to implement sources in model for better 
   sources:
     - name: jaffle_shop
       database: postgres
+      schema: dbt_refactor_jaffle_shop
       tables:
         - name: customers
         - name: orders
@@ -353,6 +354,7 @@ After simple code cleanse, now we want to implement sources in model for better 
   sources:
     - name: stripe
       database: postgres
+      schema: dbt_refactor_stripe
       tables:
         - name: payments
   ```
