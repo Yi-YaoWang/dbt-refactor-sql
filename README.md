@@ -21,8 +21,9 @@ This is a `dbt-refactor-sql` quickstart template, that supports PostgreSQL run w
   - [5 Migrate Code into DBT​](#5-migrate-code-into-dbt)
   - [6 Implement Sources by Translating Hard Coded Table References​ and Choosing Refactoring Strategies](#6-implement-sources-by-translating-hard-coded-table-references-and-choosing-refactoring-strategies)
   - [7 Cosmetic Cleanups and CTE Groupings​](#7-cosmetic-cleanups-and-cte-groupings)
-  - [8 Centralizing Logic and Splitting Up Models​](#8-centralizing-logic-and-splitting-up-models)
-  - [9 Auditing](#9-auditing)
+  - [8 Centralizing Logic](#8-centralizing-logic)
+  - [9 Splitting Up Models​](#9-splitting-up-models)
+  - [10 Auditing](#9-auditing)
 
 # Steps
 
@@ -518,7 +519,6 @@ left outer join
 ) x on x.order_id = p.order_id
 order by order_id
 ```
-
 ### Pull out intermediates and simple subqueries
 1. Move any simple subqueries into their own CTEs, and then reference those CTEs instead of the subquery.
 2. Wrap the ultimate remaining `select` statement in a CTE and call this CTE `final`.
@@ -542,7 +542,7 @@ orders as (
 
 payments as (
 
-  select * from {{ source('stripe', 'payment') }}
+  select * from {{ source('stripe', 'payments') }}
 
 ),
 
@@ -614,6 +614,10 @@ final as (
 select * from final
 ```
 
+## [8 Centralizing Logic](https://learn.getdbt.com/learn/course/refactoring-sql-for-modularity/part-2-practice-refactoring-90min/practice-refactoring?page=5)
+
+Now we can start breaking down the logic of the codes and trying to make better readability.
+
 ### Remove join in favor of window functions + some cosmetic cleanup
 1. This is specific to this query, but one of the subqueries and fields (`customer_lifetime_value`) would be better written as a window function to avoid an unnecessary extra self join.
 
@@ -637,7 +641,7 @@ orders as (
 
 payments as (
 
-  select * from {{ source('stripe', 'payment') }}
+  select * from {{ source('stripe', 'payments') }}
 
 ),
 
@@ -714,7 +718,7 @@ select * from final
 ```
 
 ### Use fully qualified table names and references
--  Cleanup toimprove readability, mostly fully qualifying column names and removing single letter aliases or other potentially confusing bits. 
+-  Cleanup for readability improvement, mostly fully qualifying column names and removing single letter aliases or other potentially confusing bits. 
 ```SQL
 with 
 
@@ -734,7 +738,7 @@ orders as (
 
 payments as (
 
-  select * from {{ source('stripe', 'payment') }}
+  select * from {{ source('stripe', 'payments') }}
 
 ),
 
@@ -843,7 +847,7 @@ orders as (
 
 payments as (
 
-  select * from {{ source('stripe', 'payment') }}
+  select * from {{ source('stripe', 'payments') }}
 
 ),
 
@@ -923,40 +927,334 @@ select * from final
 order by order_id
 ```
 
-## [8 Centralizing Logic and Splitting Up Models]()
-
-As the previous query, our last column is outside of the `for` loop. If the last iteration of a loop is our final column, we need to ensure there isn't a trailing comma at the end, or it would cause error. like this:
-
-```SQL
-{% set payment_methods = ["bank_transfer", "credit_card", "gift_card"] %}
-
-select
-order_id,
-{% for payment_method in payment_methods %}
-sum(case when payment_method = '{{payment_method}}' then amount end) as {{payment_method}}_amount,
-{% endfor %}
-from {{ ref('raw_payments') }}
-group by 1
-```
-
-However, we can use an `if` statement, along with the Jinja variable `loop.last`, to ensure we don't add an extraneous comma:
-
-```SQL
-{% set payment_methods = ["bank_transfer", "credit_card", "gift_card"] %}
-
-select
-order_id,
-{% for payment_method in payment_methods %}
-sum(case when payment_method = '{{payment_method}}' then amount end) as {{payment_method}}_amount
-{% if not loop.last %},{% endif %}
-{% endfor %}
-from {{ ref('raw_payments') }}
-group by 1
-```
-
 - Execute dbt run.
 
-## [9 Auditing]()
+## [9 Splitting Up Models](https://learn.getdbt.com/learn/course/refactoring-sql-for-modularity/part-2-practice-refactoring-90min/practice-refactoring?page=5)
+
+After finished up code cleanse and logic refactor, we can now make use of dbt's model modularity by splitting up models.
+
+### Create staging models
+Your import files at the top of `fct_customer_orders.sql` are pulling directly from the source raw data, but we want that to happen it its own model, so future marts can reference those source files as well. 
+We would like to create `staging` models to handle this import of the source and renaming potentially problematic fields in one place, so all future models can benefit from this.
+
+1. Create files models/staging/jaffle_shop/`stg_jaffle_shop__customers.sql` & models/staging/jaffle_shop/`stg_jaffle_shop__orders.sql`.
+
+2. Create a file models/staging/stripe/`stg_stripe__payments`.
+
+3. Paste the following into each file, not only we have simply split the models. We do some data processing in the meanwhile.
+
+**models/staging/jaffle_shop/stg_jaffle_shop__customers.sql**
+```SQL
+with 
+
+source as (
+
+  select * from {{ source('jaffle_shop', 'customers') }}
+
+),
+
+transformed as (
+
+  select 
+
+    id as customer_id,
+    last_name as customer_last_name,
+    first_name as customer_first_name,
+    first_name || ' ' || last_name as full_name
+
+  from source
+
+)
+
+select * from transformed
+```
+
+**models/staging/jaffle_shop/stg_jaffle_shop__orders.sql**
+```SQL
+with 
+
+source as (
+
+    select * from {{ source('jaffle_shop', 'orders') }}
+
+),
+
+transformed as (
+
+  select
+
+    id as order_id,
+    user_id as customer_id,
+    order_date as order_placed_at,
+    status as order_status,
+
+    case 
+        when status not in ('returned','return_pending') 
+        then order_date 
+    end as valid_order_date
+
+  from source
+
+)
+
+select * from transformed
+```
+
+**models/staging/stripe/stg_stripe__payments.sql**
+```SQL
+with 
+
+source as (
+
+    select * from {{ source('stripe', 'payments') }}
+
+),
+
+transformed as (
+
+  select
+
+    id as payment_id,
+    orderid as order_id,
+    created as payment_created_at,
+    status as payment_status,
+    round(amount / 100.0, 2) as payment_amount
+
+  from source
+
+)
+
+select * from transformed
+```
+
+### Update references to point to staging models
+Now that you have moved some simple transformation logic back to the staging models, it's time to persist that transformation into `fct_customer_orders.sql` by:
+
+1. Referencing the new staging models using the `{{ ref('<your_model>') }}` function
+
+2. Changing any column reference from the original column names to the new column names (i.e. `id` instead of `customer_id`)
+
+You can change it by yourself or just paste it from the following codes:
+```SQL
+with
+
+-- Import CTEs
+
+customers as (
+
+  select * from {{ ref('stg_jaffle_shop__customers') }}
+
+),
+
+orders as (
+
+  select * from {{ ref('stg_jaffle_shop__orders') }}
+
+),
+
+payments as (
+
+  select * from {{ ref('stg_stripe__payments') }}
+
+),
+
+-- Logical CTEs
+
+completed_payments as (
+
+  select 
+    order_id,
+    max(payment_created_at) as payment_finalized_date,
+    sum(payment_amount) as total_amount_paid
+  from payments
+  where payment_status <> 'fail'
+  group by 1
+
+),
+
+paid_orders as (
+
+  select 
+    orders.order_id,
+    orders.customer_id,
+    orders.order_placed_at,
+    orders.order_status,
+
+    completed_payments.total_amount_paid,
+    completed_payments.payment_finalized_date,
+
+    customers.customer_first_name,
+    customers.customer_last_name
+  from orders
+  left join completed_payments on orders.order_id = completed_payments.order_id
+  left join customers on orders.customer_id = customers.customer_id
+
+),
+
+-- Final CTE
+
+final as (
+
+  select
+    order_id,
+    customer_id,
+    order_placed_at,
+    order_status,
+    total_amount_paid,
+    payment_finalized_date,
+    customer_first_name,
+    customer_last_name,
+
+    -- sales transaction sequence
+    row_number() over (order by order_id) as transaction_seq,
+
+    -- customer sales sequence
+    row_number() over (partition by customer_id order by order_id) as customer_sales_seq,
+
+    -- new vs returning customer
+    case  
+      when (
+      rank() over (
+      partition by customer_id
+      order by order_placed_at, order_id
+      ) = 1
+    ) then 'new'
+    else 'return' end as nvsr,
+
+    -- customer lifetime value
+    sum(total_amount_paid) over (
+      partition by customer_id
+      order by order_placed_at
+      ) as customer_lifetime_value,
+
+    -- first day of sale
+    first_value(order_placed_at) over (
+      partition by customer_id
+      order by order_placed_at
+      ) as fdos
+
+    from paid_orders
+		
+)
+
+-- Simple Select Statement
+
+select * from final
+order by order_id
+```
+
+### Move reusable component to intermediate model
+Not only we can split our source models, some of the logic in your `fct_customer_orders.sql` we might want to reuse in later marts, such as `paid_orders` and `completed_payments`, so let's create an intermediate model with that logic which we can then reference in our fact model.
+
+1. Under marts folder, add a new folder and file: `marts/intermediate/int_orders.sql`
+
+You can split by yourself or just paste it from the following codes:
+```SQL
+with 
+
+orders as (
+
+  select * from {{ ref('stg_jaffle_shop__orders') }}
+
+),
+
+payments as (
+
+  select * from {{ ref('stg_stripe__payments') }}
+
+),
+
+completed_payments as (
+
+  select 
+    order_id,
+    max(payment_created_at) as payment_finalized_date,
+    sum(payment_amount) as total_amount_paid
+  from payments
+  where payment_status <> 'fail'
+  group by 1
+
+),
+
+paid_orders as (
+
+  select 
+    orders.order_id,
+    orders.customer_id,
+    orders.order_placed_at,
+    orders.order_status,
+    completed_payments.total_amount_paid,
+    completed_payments.payment_finalized_date
+  from orders
+ left join completed_payments on orders.order_id = completed_payments.order_id
+)
+
+select * from paid_orders
+```
+Remove that same logic from `fct_customer_orders.sql`:
+```SQL
+with 
+
+customers as (
+
+  select * from {{ ref('stg_jaffle_shop__customers') }}
+
+),
+
+paid_orders as (
+
+  select * from {{ ref('int_orders') }}
+
+),
+
+final as (
+    select
+        paid_orders.order_id,
+        paid_orders.customer_id,
+        paid_orders.order_placed_at,
+        paid_orders.order_status,
+        paid_orders.total_amount_paid,
+        paid_orders.payment_finalized_date,
+        customers.customer_first_name,
+        customers.customer_last_name,
+
+        -- sales transaction sequence
+        row_number() over (order by paid_orders.order_id) as transaction_seq,
+
+        -- customer sales sequence
+        row_number() over (partition by paid_orders.customer_id order by paid_orders.order_id) as customer_sales_seq,
+        
+        -- new vs returning customer
+        case 
+            when (
+            rank() over (
+                partition by paid_orders.customer_id
+                order by paid_orders.order_placed_at, paid_orders.order_id
+                ) = 1
+            ) then 'new'
+        else 'return' end as nvsr,
+
+        -- customer lifetime value
+        sum(paid_orders.total_amount_paid) over (
+            partition by paid_orders.customer_id
+            order by paid_orders.order_placed_at
+            ) as customer_lifetime_value,
+
+        -- first day of sale
+        first_value(order_placed_at) over (
+            partition by paid_orders.customer_id
+            order by paid_orders.order_placed_at
+            ) as fdos
+    from paid_orders
+    left join customers on paid_orders.customer_id = customers.customer_id
+)
+
+select * from final
+```
+
+And you're done!
+
+## [10 Auditing]()
 
 If you have checked the compiled SQL in the `target/compiled` folder, you might have noticed that this code results in a lot of white space.
 
