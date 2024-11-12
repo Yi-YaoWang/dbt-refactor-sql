@@ -1,0 +1,29 @@
+[0m00:45:48.563442 [debug] [MainThread]: Sending event: {'category': 'dbt', 'action': 'invocation', 'label': 'start', 'context': [<snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x107391cd0>, <snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x1073fe990>, <snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x1073ff850>]}
+
+
+============================== 00:45:48.565961 | de9ed1a8-d885-45cc-8173-9e5f3a805865 ==============================
+[0m00:45:48.565961 [info ] [MainThread]: Running with dbt=1.8.8
+[0m00:45:48.566397 [debug] [MainThread]: running dbt with arguments {'profiles_dir': '/Users/justin/.dbt', 'printer_width': '80', 'warn_error': 'None', 'log_cache_events': 'False', 'use_experimental_parser': 'False', 'no_print': 'None', 'empty': 'None', 'introspect': 'True', 'log_path': 'logs', 'send_anonymous_usage_stats': 'True', 'log_format': 'default', 'warn_error_options': 'WarnErrorOptions(include=[], exclude=[])', 'quiet': 'False', 'cache_selected_only': 'False', 'debug': 'False', 'partial_parse': 'True', 'write_json': 'True', 'indirect_selection': 'eager', 'invocation_command': 'dbt init dbt_refactor', 'target_path': 'None', 'fail_fast': 'False', 'version_check': 'True', 'static_parser': 'True', 'use_colors': 'True'}
+[0m00:45:48.576252 [debug] [MainThread]: Starter project path: /opt/miniconda3/envs/dbt/lib/python3.11/site-packages/dbt/include/starter_project
+[0m00:45:48.584531 [info ] [MainThread]: 
+Your new dbt project "dbt_refactor" was created!
+
+For more information on how to configure the profiles.yml file,
+please consult the dbt documentation here:
+
+  https://docs.getdbt.com/docs/configure-your-profile
+
+One more thing:
+
+Need help? Don't hesitate to reach out to us via GitHub issues or on Slack:
+
+  https://community.getdbt.com/
+
+Happy modeling!
+
+[0m00:45:48.584855 [info ] [MainThread]: Setting up your profile.
+[0m00:46:48.102982 [info ] [MainThread]: Profile dbt_refactor written to /Users/justin/.dbt/profiles.yml using target's profile_template.yml and your supplied values. Run 'dbt debug' to validate the connection.
+[0m00:46:48.106989 [debug] [MainThread]: Resource report: {"command_name": "init", "command_success": true, "command_wall_clock_time": 59.603355, "process_user_time": 0.770242, "process_kernel_time": 0.18122, "process_mem_max_rss": "101859328", "process_in_blocks": "0", "process_out_blocks": "0"}
+[0m00:46:48.107754 [debug] [MainThread]: Command `dbt init` succeeded at 00:46:48.107628 after 59.60 seconds
+[0m00:46:48.108234 [debug] [MainThread]: Sending event: {'category': 'dbt', 'action': 'invocation', 'label': 'end', 'context': [<snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x107161b10>, <snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x107392190>, <snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x103391ad0>]}
+[0m00:46:48.108617 [debug] [MainThread]: Flushing usage events
