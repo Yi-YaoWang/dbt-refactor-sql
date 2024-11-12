@@ -19,14 +19,10 @@ This is a `dbt-refactor-sql` quickstart template, that supports PostgreSQL run w
   - [3 Create a project​](#3-create-a-project)
   - [4 Prepare PostgreSQL​​](#4-prepare-postgresql)
   - [5 Migrate Code into DBT​](#5-migrate-code-into-dbt)
-  - [6 Migrate Code into DBT​](#6-migrate-code-into-dbt)
-  - [7 Implement Sources by Translating Hard Coded Table References​](#7-set-variables)
-  - [8 Build models on top of other models​​](#8-build-your-models-on-top-of-other-models)
-  - [9 Use whitespace control to tidy up compiled code​](#9-use-whitespace-control-to-tidy-up-compiled-code)
-  - [10 Use a macro to return payment methods​](#10-use-a-macro-to-return-payment-methods)
-  - [11 Dynamically retrieve the list of payment methods](#11-dynamically-retrieve-the-list-of-payment-methods)
-  - [12 Write modular macros](#12-write-modular-macros)
-  - [13 Use a macro from a package​](#13-use-a-macro-from-a-package)
+  - [6 Implement Sources by Translating Hard Coded Table References​ and Choosing Refactoring Strategies](#6-implement-sources-by-translating-hard-coded-table-references-and-choosing-refactoring-strategies)
+  - [7 Cosmetic Cleanups and CTE Groupings​](#7-cosmetic-cleanups-and-cte-groupings)
+  - [8 Centralizing Logic and Splitting Up Models​](#8-centralizing-logic-and-splitting-up-models)
+  - [9 Auditing](#9-auditing)
 
 # Steps
 
@@ -293,43 +289,77 @@ Paste the following into the `compare_queries.sql` file:
 ```SQL
 {% set old_etl_relation=ref('customer_orders') %} 
 
-{% set dbt_relation=ref('fct_customer_orders') %}  {{ 
+{% set dbt_relation=ref('fct_customer_orders') %}
 
+{{ 
 audit_helper.compare_relations(
         a_relation=old_etl_relation,
         b_relation=dbt_relation,
         primary_key="order_id"
-    ) }}
+) }}
 ```
 Run `dbt compile` in the command line
+Then, look for the compiled SQL file in `target/compiled/dbt_refactor/analyses/compare_queries.sql`.
+Run this SQL using power-DBT's `Execute dbt's SQL` or any data visualization tool.
 
-You will see 1 line output showing 100% match between the two files, because so far they are exactly the same!
+You will see showing 100% percent_of_total match between the two files, because so far they are exactly the same!
 See more at [dbt_audit_helper](https://hub.getdbt.com/dbt-labs/audit_helper/latest/)
 
-## [6 Migrate Code into DBT​](https://learn.getdbt.com/learn/course/refactoring-sql-for-modularity/part-2-practice-refactoring-90min/practice-refactoring?page=2)
+## [6 Implement Sources by Translating Hard Coded Table References and Choosing Refactoring Strategies​](https://learn.getdbt.com/learn/course/refactoring-sql-for-modularity/part-2-practice-refactoring-90min/practice-refactoring?page=3)
 
-An intuitive approached for repeated codes is using loop, so let's give it a try:
-
-- Open the compiled SQL file in /target/compiled/dbt_jinja/models/**order_payment_method_amounts.sql**. Use a split screen in the code editor to keep both files open at once to check what Jinja  has compiled.
-
-- Edit models/**order_payment_method_amounts.sql**:
-  
+Now we can look at this __legacy__ code. It has poor readability, hard to maintaince and confusing. The first thing we could do is keep all table and column name in consistency by making letters into lower case.
+- You can change all the codes by yourself or just copy following codes and replace models/marts/`fct_customer_orders.sql`.
 ```SQL
+with paid_orders as (select orders.id as order_id,
+    orders.user_id	as customer_id,
+    orders.order_date as order_placed_at,
+    orders.status as order_status,
+    p.total_amount_paid,
+    p.payment_finalized_date,
+    c.first_name    as customer_first_name,
+    c.last_name as customer_last_name
+from postgres.dbt_refactor_jaffle_shop.orders as orders
+left join (select orderid as order_id, max(created) as payment_finalized_date, sum(amount) / 100.0 as total_amount_paid
+        from postgres.dbt_refactor_stripe.payments
+        where status <> 'fail'
+        group by 1) p on orders.id = p.order_id
+left join postgres.dbt_refactor_jaffle_shop.customers c on orders.user_id = c.id ),
+
+customer_orders 
+as (select c.id as customer_id
+    , min(order_date) as first_order_date
+    , max(order_date) as most_recent_order_date
+    , count(orders.id) as number_of_orders
+from postgres.dbt_refactor_jaffle_shop.customers c
+left join postgres.dbt_refactor_jaffle_shop.orders as orders
+on orders.user_id = c.id
+group by 1)
+
 select
-order_id,
-{% for payment_method in ["bank_transfer", "credit_card", "gift_card"] %}
-sum(case when payment_method = '{{payment_method}}' then amount end) as {{payment_method}}_amount,
-{% endfor %}
-sum(amount) as total_amount
-from {{ ref('raw_payments') }}
-group by 1
+p.*,
+row_number() over (order by p.order_id) as transaction_seq,
+row_number() over (partition by customer_id order by p.order_id) as customer_sales_seq,
+case when c.first_order_date = p.order_placed_at
+then 'new'
+else 'return' end as nvsr,
+x.clv_bad as customer_lifetime_value,
+c.first_order_date as fdos
+from paid_orders p
+left join customer_orders as c using (customer_id)
+left outer join 
+(
+        select
+        p.order_id,
+        sum(t2.total_amount_paid) as clv_bad
+    from paid_orders p
+    left join paid_orders t2 on p.customer_id = t2.customer_id and p.order_id >= t2.order_id
+    group by 1
+    order by p.order_id
+) x on x.order_id = p.order_id
+order by order_id
 ```
 
-- Enter the dbt run in command-line.
-
-  The compiled SQL should be the same as lest step's SQL, but is much easier to maintained.
-
-## [7 Set Variables​](https://docs.getdbt.com/guides/using-jinja?step=4)
+## [7 Choosing Refactoring Strategies​](https://learn.getdbt.com/learn/course/refactoring-sql-for-modularity/part-2-practice-refactoring-90min/practice-refactoring?page=3)
 
 You can now setting variables at the top of a model, as it helps with readability, and enables you to reference the list in multiple places if required. 
 
