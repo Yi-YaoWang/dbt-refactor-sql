@@ -177,11 +177,11 @@ dbt debug
   Copy following codes and pasted at the bottom of ``/dbt_project.yml``
   ```yaml
   seeds:
-  dbt_refactor:
-    jaffle_shop:
-      +schema: jaffle_shop
-    stripe:
-      +schema: stripe
+    dbt_refactor:
+      jaffle_shop:
+        +schema: jaffle_shop
+      stripe:
+        +schema: stripe
   ```
   
   - copy seeds data
