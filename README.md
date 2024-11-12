@@ -923,8 +923,6 @@ select * from final
 order by order_id
 ```
 
-- Enter the dbt run in command-line.
-
 ## [8 Centralizing Logic and Splitting Up Models]()
 
 As the previous query, our last column is outside of the `for` loop. If the last iteration of a loop is our final column, we need to ensure there isn't a trailing comma at the end, or it would cause error. like this:
