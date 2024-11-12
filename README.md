@@ -438,6 +438,28 @@ with
 - Add import CTEs after the `with` statement for each source table that the query uses. Ensure that subsequent `from` statements after the import CTEs reference the named CTEs rather than the `{{ source() }}`. We will focus on additional restructuring in the next section.
 
 ```SQL
+with 
+
+-- Import CTEs
+
+customers as (
+
+  select * from {{ source('jaffle_shop', 'customers') }}
+
+),
+
+orders as (
+
+  select * from {{ source('jaffle_shop', 'orders') }}
+
+),
+
+payments as (
+
+  select * from {{ source('stripe', 'payments') }}
+
+),
+
 paid_orders as (
     select orders.id as order_id,
         orders.user_id as customer_id,
