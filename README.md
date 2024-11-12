@@ -1,19 +1,18 @@
-# `dbt-macros-packages` Quickstart
-
+![image](https://github.com/user-attachments/assets/7a42e425-189c-4e14-95a6-8cb220594a9c)# `dbt-refactor-sql`
 [![Generic badge](https://img.shields.io/badge/dbt-1.8.8-blue.svg)](https://docs.getdbt.com/dbt-cli/cli-overview)
 [![Generic badge](https://img.shields.io/badge/PostgreSQL-16-blue.svg)](https://www.postgresql.org/)
 [![Generic badge](https://img.shields.io/badge/Python-3.11.10-blue.svg)](https://www.python.org/)
 [![Generic badge](https://img.shields.io/badge/Podman-5.0.2-blue.svg)](https://www.docker.com/)
 
-This is a `dbt-macros-packages` quickstart template, that supports PostgreSQL run with podman. This turtorial assumed viewer has basic DBT and Jinja knowledge. If not please have these lessons first.
+This is a `dbt-refactor-sql` quickstart template, that supports PostgreSQL run with podman. This turtorial assumed viewer has basic DBT and Jinja knowledge. If not, please have these lessons first.
   - [dbt-core-quickstart-template](https://github.com/saastoolset/dbt-core-quickstart-template)
   - [Jinja2-101-template](https://github.com/saastool/jinja2-101)
   
-  This `dbt-macros-packages` quickstart taken from the various [dbt Developer Hub](https://docs.getdbt.com/guides/using-jinja) and the infrastructure is based on [dbt-core-quickstart-template](https://github.com/saastoolset/dbt-core-quickstart-template), using `PostgreSQL` as the data warehouse. 
+  This `dbt-refactor-sql` quickstart taken from the various [dbt Developer Hub](https://learn.getdbt.com/learn/course/refactoring-sql-for-modularity) and the infrastructure is based on [dbt-core-quickstart-template](https://github.com/saastoolset/dbt-core-quickstart-template), using `PostgreSQL` as the data warehouse. 
 
-  If you have finished dbt-core-quickstart-template before, the infrastructure and architect we using here are total the same. That is to say, you can skip directly to [Step 3 Create a project​](#3-create-a-project)
+  If you have finished dbt-core-quickstart-template before, the infrastructure and architect we using here are total the same. Therefore, you can skip steps into [Step 3 Create a project​](#3-create-a-project)
 
-- [`dbt-core` Quickstart](#dbt-core-quickstart)
+- [`dbt-refactor-sql` Quickstart](#dbt-refactor-sql)
 - [Steps](#steps)
   - [1 Introduction​](#1-introduction)
   - [2 Create a repository and env prepare​](#2-create-a-repository-and-env-prepare)
@@ -56,9 +55,9 @@ This template will develop and run dbt commands using the dbt Cloud CLI — a db
 
 1. Create a new GitHub repository
 
-- Find our Github template repository [dbt-core-quickstart-template](https://github.com/saastoolset/dbt-core-quickstart-template)
+- Find our Github template repository [dbt-refactor-sql](https://github.com/Yi-YaoWang/dbt-refactor-sql)
 - Click the big green 'Use this template' button and 'Create a new repository'.
-- Create a new GitHub repository named **dbt-core-qs-ex1**.
+- Create a new GitHub repository named **dbt-refactor-sql-ex1**.
 
 ![Click use template](.github/static/use-template.gif)
 
@@ -127,13 +126,13 @@ dbt --version
   Initiate the jaffle_shop project using the init command:
 
 ```python
-dbt init dbt_jinja
+dbt init dbt_refactor
 ```
 
 DBT will configure connection while initiating project, just follow the information below. After initialization, the configuration can be found in `profiles.yml`.
 
 ```YAML
-dbt_jinja:
+dbt_refactor:
   outputs:
     dev:
       dbname: postgres
@@ -141,7 +140,7 @@ dbt_jinja:
       user: admin      
       pass: Passw0rd 
       port: 5432
-      schema: dbt_jinja
+      schema: dbt_refactor
       threads: 1
       type: postgres
   target: dev
@@ -151,7 +150,7 @@ dbt_jinja:
 Navigate into your project's directory:
 
 ```command
-cd dbt_jinja
+cd dbt_refactor
 ```
 
 Use pwd to confirm that you are in the right spot:
@@ -163,11 +162,11 @@ Use pwd to confirm that you are in the right spot:
 Use a code editor VSCode to open the project directory
 
 ```command
-(dbt) ~\Projects\dbt_jinja> code .
+(dbt) ~\Projects\dbt_refactor> code .
 ```
 Let's remove models/example/ directory, we won't use any of it in this turtorial
 
-## [4 Connect to PostgreSQL​](https://docs.getdbt.com/guides/manual-install?step=4)
+## [4 Prepare PostgreSQL​](https://docs.getdbt.com/guides/manual-install?step=4)
 
 - Test connection config
 
@@ -177,54 +176,100 @@ dbt debug
 
 - Load sample data
  We should copy this data from the `db/seeds` directory.
-
+  - Config seed schema
+  Edit **/dbt_project.yml**
+  ```
+  seeds:
+  dbt_refactor:
+    jaffle_shop:
+      +schema: jaffle_shop
+    stripe:
+      +schema: stripe
+  ```
+  
   - copy seeds data
   **Windows**
   ```
-  copy ..\db\*.csv seeds
+  copy ..\db\* seeds
   dbt seed
   ```
 
   **Mac**
   ```
-  cp ../db/*.csv seeds
+  cp ../db/* seeds
   dbt seed
   ```
   
 - Verfiy result in database client
 This command will create and insert the `.csv` files to the `dbt_jinja.raw_payments` table
 
-## [5 Build Basic Model](https://docs.getdbt.com/guides/using-jinja?step=2)
+## [5 Build Basic Model](https://learn.getdbt.com/learn/course/refactoring-sql-for-modularity/setting-up-your-environment-15min/setting-up-your-environment?page=3)
 
 - Open your project in your favorite code editor.
-- Create a new SQL file in the models directory, named models/**order_payment_method_amounts.sql**.
-- Paste the following query into the models/**order_payment_method_amounts.sql** file.
+- Remove example directory, models/__example/*__
+- Create a new SQL file in the models directory, named models/**customer_orders.sql**.
+- Paste the following query into the models/**customer_orders.sql** file.
 
 ```SQL
+WITH paid_orders as (select Orders.ID as order_id,
+    Orders.USER_ID	as customer_id,
+    Orders.ORDER_DATE AS order_placed_at,
+        Orders.STATUS AS order_status,
+    p.total_amount_paid,
+    p.payment_finalized_date,
+    C.FIRST_NAME    as customer_first_name,
+        C.LAST_NAME as customer_last_name
+FROM postgres.dbt_refactor_jaffle_shop.orders as Orders
+left join (select ORDERID as order_id, max(CREATED) as payment_finalized_date, sum(AMOUNT) / 100.0 as total_amount_paid
+        from postgres.dbt_refactor_stripe.payments
+        where STATUS <> 'fail'
+        group by 1) p ON orders.ID = p.order_id
+left join postgres.dbt_refactor_jaffle_shop.customers C on orders.USER_ID = C.ID ),
+
+customer_orders 
+as (select C.ID as customer_id
+    , min(ORDER_DATE) as first_order_date
+    , max(ORDER_DATE) as most_recent_order_date
+    , count(ORDERS.ID) AS number_of_orders
+from postgres.dbt_refactor_jaffle_shop.customers C 
+left join postgres.dbt_refactor_jaffle_shop.orders as Orders
+on orders.USER_ID = C.ID 
+group by 1)
+
 select
-order_id,
-sum(case when payment_method = 'bank_transfer' then amount end) as bank_transfer_amount,
-sum(case when payment_method = 'credit_card' then amount end) as credit_card_amount,
-sum(case when payment_method = 'gift_card' then amount end) as gift_card_amount,
-sum(amount) as total_amount
-from {{ ref('raw_payments') }}
-group by 1
+p.*,
+ROW_NUMBER() OVER (ORDER BY p.order_id) as transaction_seq,
+ROW_NUMBER() OVER (PARTITION BY customer_id ORDER BY p.order_id) as customer_sales_seq,
+CASE WHEN c.first_order_date = p.order_placed_at
+THEN 'new'
+ELSE 'return' END as nvsr,
+x.clv_bad as customer_lifetime_value,
+c.first_order_date as fdos
+FROM paid_orders p
+left join customer_orders as c USING (customer_id)
+LEFT OUTER JOIN 
+(
+        select
+        p.order_id,
+        sum(t2.total_amount_paid) as clv_bad
+    from paid_orders p
+    left join paid_orders t2 on p.customer_id = t2.customer_id and p.order_id >= t2.order_id
+    group by 1
+    order by p.order_id
+) x on x.order_id = p.order_id
+ORDER BY order_id
+
 ```
 
 - From the command line, enter
 
 ```
-dbt run
+dbt run -m customer_orders
 ```
 
-- This SQL sums up each payment method's amount by order. This is basic SQL writting, but with some potential maintainance issues:
-  - If the logic or field name were to change, the code would need to be updated in three places.
-  - Often this code is created by copying and pasting, which may lead to mistakes.
-  - Other analysts that review the code are less likely to notice errors as it's common to only scan through repeated code.
+- Make sure everything passed
 
-  So let's resolve these issues by applying macros.
-
-## [6 Use a for loop in models for repeated SQL​](https://docs.getdbt.com/guides/using-jinja?step=3)
+## [6 Migrate Code into DBT​](https://learn.getdbt.com/learn/course/refactoring-sql-for-modularity/part-2-practice-refactoring-90min/practice-refactoring?page=2)
 
 An intuitive approached for repeated codes is using loop, so let's give it a try:
 
