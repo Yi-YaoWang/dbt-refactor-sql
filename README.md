@@ -358,29 +358,574 @@ left outer join
 ) x on x.order_id = p.order_id
 order by order_id
 ```
+After simple code cleanse, now we want to implement sources in model for better management and defined model lineage.
+- Create a subfolder under your `models` folder called `staging`
+- Under your `models/staging` folder, create two subfolders `stripe` and `jaffle_shop` - one for each source schema that our original query pulls from.
+- Create a file under `models/staging/jaffle_shop` called `sources.yml`.
+- Create a file under `models/staging/stripe` called `sources.yml`.
+- Declare configurations for the corresponding source in each file:
+  ```yaml
+  version: 2
 
-## [7 Choosing Refactoring Strategies​](https://learn.getdbt.com/learn/course/refactoring-sql-for-modularity/part-2-practice-refactoring-90min/practice-refactoring?page=3)
+  sources:
+    - name: jaffle_shop
+      database: postgres
+      tables:
+        - name: customers
+        - name: orders
+  ```
+  ```yaml
+  version: 2
 
-You can now setting variables at the top of a model, as it helps with readability, and enables you to reference the list in multiple places if required. 
+  sources:
+    - name: stripe
+      database: postgres
+      tables:
+        - name: payments
+  ```
+- Now that your sources are configured, open your `fct_customer_orders.sql` file and replace any hardcoded references (i.e, `postgres.dbt_refactor_jaffle_shop.customers`) with a [source function](https://docs.getdbt.com/docs/build/sources#selecting-from-a-source), referencing the sources you have set up.
+  ```SQL
+  with 
+    paid_orders as (
+        select orders.id as order_id,
+            orders.user_id as customer_id,
+            orders.order_date as order_placed_at,
+            orders.status as order_status,
+            p.total_amount_paid,
+            p.payment_finalized_date,
+            c.first_name as customer_first_name,
+            c.last_name as customer_last_name
+        from {{ source('jaffle_shop', 'orders') }} as orders
+        left join (
+            select 
+                orderid as order_id,
+                max(created) as payment_finalized_date,
+                sum(amount) / 100.0 as total_amount_paid
+            from {{ source('stripe', 'payments') }} as payments
+            where status <> 'fail'
+            group by 1
+        ) p on orders.id = p.order_id
+        left join {{ source('jaffle_shop', 'customers') }} as c on orders.user_id = c.id ),
 
-- Edit models/**order_payment_method_amounts.sql**:
-  
+    customer_orders as (
+        select 
+            c.id as customer_id
+            , min(order_date) as first_order_date
+            , max(order_date) as most_recent_order_date
+            , count(orders.id) as number_of_orders
+        from {{ source('jaffle_shop', 'customers') }}  c 
+        left join {{ source('jaffle_shop', 'orders') }}  as orders on orders.user_id = c.id 
+        group by 1
+    )         
+
+    select
+        p.*,
+        row_number() over (order by p.order_id) as transaction_seq,
+        row_number() over (partition by customer_id order by p.order_id) as customer_sales_seq,
+        case when c.first_order_date = p.order_placed_at
+        then 'new'
+        else 'return' end as nvsr,
+        x.clv_bad as customer_lifetime_value,
+        c.first_order_date as fdos
+    from paid_orders p
+    left join customer_orders as c using (customer_id)
+    left outer join 
+    (
+        select
+            p.order_id,
+            sum(t2.total_amount_paid) as clv_bad
+        from paid_orders p
+        left join paid_orders t2 on p.customer_id = t2.customer_id and p.order_id >= t2.order_id
+        group by 1
+        order by p.order_id
+    ) x on x.order_id = p.order_id
+    order by order_id
+  ```
+ - Conduct a `dbt run -m fct_customer_orders` to ensure that your sources are configured properly and your model rebuilds in the warehouse.
+ - You can check the model linage by using dbt power's `Lineage` tab.
+
+## [7 Cosmetic Cleanups and CTE Groupings​​](https://learn.getdbt.com/learn/course/refactoring-sql-for-modularity/part-2-practice-refactoring-90min/practice-refactoring?page=4)
+
+This section is heavy on best practices, our strategy here is using CTEs to break down the codes and do cosmetic cleanups during the process. But refactoring other `Legacy` codes might have other strategy that is better suit the needs.
+
+-  CTE restructuring
+Refactor codes to follow this structure:
+
+- Add a `with` statement to the top of your `fct_customer_orders` model
 ```SQL
-{% set payment_methods = ["bank_transfer", "credit_card", "gift_card"] %}
+with 
+-- import CTEs
+-- logical CTEs
+-- final CTE
+-- simple select statement
+```
+
+- Add import CTEs after the `with` statement for each source table that the query uses. Ensure that subsequent `from` statements after the import CTEs reference the named CTEs rather than the `{{ source() }}`. We will focus on additional restructuring in the next section.
+
+```SQL
+paid_orders as (
+    select orders.id as order_id,
+        orders.user_id as customer_id,
+        orders.order_date as order_placed_at,
+        orders.status as order_status,
+        p.total_amount_paid,
+        p.payment_finalized_date,
+        c.first_name as customer_first_name,
+        c.last_name as customer_last_name
+    from orders
+    left join (
+        select 
+            orderid as order_id,
+            max(created) as payment_finalized_date,
+            sum(amount) / 100.0 as total_amount_paid
+        from payments
+        where status <> 'fail'
+        group by 1
+    ) p on orders.id = p.order_id
+    left join customers as c on orders.user_id = c.id ),
+
+customer_orders as (
+    select 
+        c.id as customer_id
+        , min(order_date) as first_order_date
+        , max(order_date) as most_recent_order_date
+        , count(orders.id) as number_of_orders
+    from customers as c 
+    left join orders on orders.user_id = c.id 
+    group by 1
+)
 
 select
-order_id,
-{% for payment_method in payment_methods %}
-sum(case when payment_method = '{{payment_method}}' then amount end) as {{payment_method}}_amount,
-{% endfor %}
-sum(amount) as total_amount
-from {{ ref('raw_payments') }}
-group by 1
+    p.*,
+    row_number() over (order by p.order_id) as transaction_seq,
+    row_number() over (partition by customer_id order by p.order_id) as customer_sales_seq,
+    case when c.first_order_date = p.order_placed_at
+    then 'new'
+    else 'return' end as nvsr,
+    x.clv_bad as customer_lifetime_value,
+    c.first_order_date as fdos
+from paid_orders p
+left join customer_orders as c using (customer_id)
+left outer join 
+(
+    select
+        p.order_id,
+        sum(t2.total_amount_paid) as clv_bad
+    from paid_orders p
+    left join paid_orders t2 on p.customer_id = t2.customer_id and p.order_id >= t2.order_id
+    group by 1
+    order by p.order_id
+) x on x.order_id = p.order_id
+order by order_id
+```
+
+### Pull out intermediates and simple subqueries
+1. Move any simple subqueries into their own CTEs, and then reference those CTEs instead of the subquery.
+2. Wrap the ultimate remaining `select` statement in a CTE and call this CTE `final`.
+3. Add a simple select statement at the end: `select * from final`.
+```SQL
+with 
+
+-- Import CTEs
+
+customers as (
+
+  select * from {{ source('jaffle_shop', 'customers') }}
+
+),
+
+orders as (
+
+  select * from {{ source('jaffle_shop', 'orders') }}
+
+),
+
+payments as (
+
+  select * from {{ source('stripe', 'payment') }}
+
+),
+
+-- Logical CTEs
+
+completed_payments as (
+    select 
+        orderid as order_id,
+        max(created) as payment_finalized_date,
+        sum(amount) / 100.0 as total_amount_paid
+    from payments
+    where status <> 'fail'
+    group by 1
+),
+
+paid_orders as (
+    select orders.id as order_id,
+        orders.user_id as customer_id,
+        orders.order_date as order_placed_at,
+        orders.status as order_status,
+        p.total_amount_paid,
+        p.payment_finalized_date,
+        c.first_name as customer_first_name,
+        c.last_name as customer_last_name
+    from orders
+    left join completed_payments as p on orders.id = p.order_id
+    left join customers as c on orders.user_id = c.id ),
+
+customer_orders as (
+    select 
+        c.id as customer_id
+        , min(order_date) as first_order_date
+        , max(order_date) as most_recent_order_date
+        , count(orders.id) as number_of_orders
+    from customers as c 
+    left join orders on orders.user_id = c.id 
+    group by 1
+),
+
+-- Final CTE
+
+final as (
+    select
+        p.*,
+        row_number() over (order by p.order_id) as transaction_seq,
+        row_number() over (partition by customer_id order by p.order_id) as customer_sales_seq,
+        case when c.first_order_date = p.order_placed_at
+        then 'new'
+        else 'return' end as nvsr,
+        x.clv_bad as customer_lifetime_value,
+        c.first_order_date as fdos
+    from paid_orders p
+    left join customer_orders as c using (customer_id)
+    left join 
+    (
+        select
+            p.order_id,
+            sum(t2.total_amount_paid) as clv_bad
+        from paid_orders p
+        left join paid_orders t2 on p.customer_id = t2.customer_id and p.order_id >= t2.order_id
+        group by 1
+        order by p.order_id
+    ) x on x.order_id = p.order_id
+    order by order_id
+)
+
+-- Simple Select Statment
+
+select * from final
+```
+
+### Remove join in favor of window functions + some cosmetic cleanup
+1. This is specific to this query, but one of the subqueries and fields (`customer_lifetime_value`) would be better written as a window function to avoid an unnecessary extra self join.
+
+2. Add comments for case-when or window functions to help out future you
+```SQL
+with 
+
+-- Import CTEs
+
+customers as (
+
+  select * from {{ source('jaffle_shop', 'customers') }}
+
+),
+
+orders as (
+
+  select * from {{ source('jaffle_shop', 'orders') }}
+
+),
+
+payments as (
+
+  select * from {{ source('stripe', 'payment') }}
+
+),
+
+-- Logical CTEs
+
+completed_payments as (
+    select 
+        orderid as order_id,
+        max(created) as payment_finalized_date,
+        sum(amount) / 100.0 as total_amount_paid
+    from payments
+    where status <> 'fail'
+    group by 1
+),
+
+paid_orders as (
+    select orders.id as order_id,
+        orders.user_id as customer_id,
+        orders.order_date as order_placed_at,
+        orders.status as order_status,
+        p.total_amount_paid,
+        p.payment_finalized_date,
+        c.first_name as customer_first_name,
+        c.last_name as customer_last_name
+    from orders
+    left join completed_payments as p on orders.id = p.order_id
+    left join customers as c on orders.user_id = c.id
+),
+
+customer_orders as (
+    select 
+        c.id as customer_id
+        , min(order_date) as first_order_date
+        , max(order_date) as most_recent_order_date
+        , count(orders.id) as number_of_orders
+    from customers as c 
+    left join orders on orders.user_id = c.id 
+    group by 1
+),
+
+-- Final CTE
+
+final as (
+    select
+        p.*,
+
+        -- sales transaction sequence
+        row_number() over (order by p.order_id) as transaction_seq,
+
+        -- customer sales sequence
+        row_number() over (partition by customer_id order by p.order_id) as customer_sales_seq,
+        
+        -- new vs returning customer
+        case when c.first_order_date = p.order_placed_at
+        then 'new'
+        else 'return' end as nvsr,
+        
+        -- customer lifetime value
+        sum(total_amount_paid) over (
+            partition by paid_orders.customer_id
+            order by paid_orders.order_placed_at
+            ) as customer_lifetime_value,
+
+        -- first day of sale
+        c.first_order_date as fdos
+    from paid_orders p
+    left join customer_orders as c using (customer_id)
+    order by order_id
+)
+
+-- Simple Select Statment
+
+select * from final
+```
+
+### Use fully qualified table names and references
+-  Cleanup toimprove readability, mostly fully qualifying column names and removing single letter aliases or other potentially confusing bits. 
+```SQL
+with 
+
+-- Import CTEs
+
+customers as (
+
+  select * from {{ source('jaffle_shop', 'customers') }}
+
+),
+
+orders as (
+
+  select * from {{ source('jaffle_shop', 'orders') }}
+
+),
+
+payments as (
+
+  select * from {{ source('stripe', 'payment') }}
+
+),
+
+-- Logical CTEs
+
+completed_payments as (
+    select 
+        orderid as order_id,
+        max(created) as payment_finalized_date,
+        sum(amount) / 100.0 as total_amount_paid
+    from payments
+    where status <> 'fail'
+    group by 1
+),
+
+paid_orders as (
+    select 
+        orders.id as order_id,
+        orders.user_id as customer_id,
+        orders.order_date as order_placed_at,
+        orders.status as order_status,
+        completed_payments.total_amount_paid,
+        completed_payments.payment_finalized_date,
+        customers.first_name as customer_first_name,
+        customers.last_name as customer_last_name
+    from orders
+    left join completed_payments on orders.id = completed_payments.order_id
+    left join customers on orders.user_id = customers.id
+),
+
+customer_orders as (
+    select 
+        customers.id as customer_id
+        , min(orders.order_date) as first_order_date
+        , max(orders.order_date) as most_recent_order_date
+        , count(orders.id) as number_of_orders
+    from customers
+    left join orders on orders.user_id = customers.id 
+    group by 1
+),
+
+-- Final CTE
+
+final as (
+    select
+        paid_orders.order_id,
+        paid_orders.customer_id,
+        paid_orders.order_placed_at,
+        paid_orders.order_status,
+        paid_orders.total_amount_paid,
+        paid_orders.payment_finalized_date,
+        paid_orders.customer_first_name,
+        paid_orders.customer_last_name,
+
+        -- sales transaction sequence
+        row_number() over (order by paid_orders.order_id) as transaction_seq,
+
+        -- customer sales sequence
+        row_number() over (partition by paid_orders.customer_id order by paid_orders.order_id) as customer_sales_seq,
+        
+        -- new vs returning customer
+        case when customer_orders.first_order_date = paid_orders.order_placed_at
+        then 'new'
+        else 'return' end as nvsr,
+        
+        -- customer lifetime value
+        sum(paid_orders.total_amount_paid) over (
+            partition by paid_orders.customer_id
+            order by paid_orders.order_placed_at
+            ) as customer_lifetime_value,
+
+        -- first day of sale
+        customer_orders.first_order_date as fdos
+    from paid_orders
+    left join customer_orders on paid_orders.customer_id = customer_orders.customer_id
+    order by order_id
+)
+
+-- Simple Select Statment
+
+select * from final
+```
+
+### Simplify with window functions
+1. This is specific to this query, but one of the final columns was using a CTE to aggregate: `min(orders.order_date) as first_order_date` which could be simplified with a `first_value` window function.
+
+2. Remove the `customer_orders` CTE and join in the `final` CTE.
+
+3. Change the transformation logic for the following two columns: `nvsr` & `fdos`
+```SQL
+with 
+
+-- Import CTEs
+
+customers as (
+
+  select * from {{ source('jaffle_shop', 'customers') }}
+
+),
+
+orders as (
+
+  select * from {{ source('jaffle_shop', 'orders') }}
+
+),
+
+payments as (
+
+  select * from {{ source('stripe', 'payment') }}
+
+),
+
+-- Logical CTEs
+
+completed_payments as (
+    select 
+        orderid as order_id,
+        max(created) as payment_finalized_date,
+        sum(amount) / 100.0 as total_amount_paid
+    from payments
+    where status <> 'fail'
+    group by 1
+),
+
+paid_orders as (
+    select 
+        orders.id as order_id,
+        orders.user_id as customer_id,
+        orders.order_date as order_placed_at,
+        orders.status as order_status,
+        completed_payments.total_amount_paid,
+        completed_payments.payment_finalized_date,
+        customers.first_name as customer_first_name,
+        customers.last_name as customer_last_name
+    from orders
+    left join completed_payments on orders.id = completed_payments.order_id
+    left join customers on orders.user_id = customers.id
+),
+
+-- Final CTE
+
+final as (
+    select
+        paid_orders.order_id,
+        paid_orders.customer_id,
+        paid_orders.order_placed_at,
+        paid_orders.order_status,
+        paid_orders.total_amount_paid,
+        paid_orders.payment_finalized_date,
+        paid_orders.customer_first_name,
+        paid_orders.customer_last_name,
+
+        -- sales transaction sequence
+        row_number() over (order by paid_orders.order_id) as transaction_seq,
+
+        -- customer sales sequence
+        row_number() over (partition by paid_orders.customer_id order by paid_orders.order_id) as customer_sales_seq,
+        
+        -- new vs returning customer
+        case 
+            when (
+            rank() over (
+                partition by customer_id
+                order by order_placed_at, order_id
+                ) = 1
+            ) then 'new'
+        else 'return' end as nvsr,
+
+        -- customer lifetime value
+        sum(paid_orders.total_amount_paid) over (
+            partition by paid_orders.customer_id
+            order by paid_orders.order_placed_at
+            ) as customer_lifetime_value,
+
+        -- first day of sale
+        first_value(paid_orders.order_placed_at) over (
+            partition by paid_orders.customer_id
+            order by paid_orders.order_placed_at
+            ) as fdos
+    from paid_orders
+)
+
+-- Simple Select Statment
+
+select * from final
+order by order_id
 ```
 
 - Enter the dbt run in command-line.
 
-## [8 Build models on top of other models​](https://docs.getdbt.com/guides/using-jinja?step=5)
+## [8 Centralizing Logic and Splitting Up Models]()
 
 As the previous query, our last column is outside of the `for` loop. If the last iteration of a loop is our final column, we need to ensure there isn't a trailing comma at the end, or it would cause error. like this:
 
@@ -413,7 +958,7 @@ group by 1
 
 - Execute dbt run.
 
-## [9 Use whitespace control to tidy up compiled code](https://docs.getdbt.com/guides/using-jinja?step=6)
+## [9 Auditing]()
 
 If you have checked the compiled SQL in the `target/compiled` folder, you might have noticed that this code results in a lot of white space.
 
@@ -434,184 +979,5 @@ group by 1
 
 - Execute dbt run.
 
-## [10 Use a macro to return payment methods](https://docs.getdbt.com/guides/using-jinja?step=7)
-
-Furthermore, we can wrap it up by using a macro in case we want to reuse multiple times in the future. We have practiced macro back in jinja2 101, now let's try using it with DBT.
-
-DBT stored macros in `/macros/` folder, 
-- Create a new SQL file in the macros directory, named macros/**get_payment_methods.sql**.
-- Paste the following query into the macros/**get_payment_methods.sql** file:
-
-```SQL
-{% macro get_payment_methods() %}
-{{ return(["bank_transfer", "credit_card", "gift_card"]) }}
-{% endmacro %}
-```
-
-- Then edit models/**order_payment_method_amounts.sql**:
-
-```SQL
-{%- set payment_methods = get_payment_methods() -%}
-
-select
-order_id,
-{%- for payment_method in payment_methods %}
-sum(case when payment_method = '{{payment_method}}' then amount end) as {{payment_method}}_amount
-{%- if not loop.last %},{% endif -%}
-{% endfor %}
-from {{ ref('raw_payments') }}
-group by 1
-```
-
-- Execute dbt run.
-
-## [11 Dynamically retrieve the list of payment methods](https://docs.getdbt.com/guides/using-jinja?step=8)
-
-The list is actually stored in `raw_payment`. If a new payment_method was introduced, inserted, or one of the existing methods was renamed, the list would need to be updated accordingly. We have to change macro into query.
-
-- Paste the following query into the macros/**get_payment_methods.sql** file:
-
-```SQL
-{% macro get_payment_methods() %}
-
-{% set payment_methods_query %}
-select distinct
-payment_method
-from {{ ref('raw_payments') }}
-order by 1
-{% endset %}
-
-{% set results = run_query(payment_methods_query) %}
-
-{{ log(results, info=True) }}
-
-{{ return([]) }}
-
-{% endmacro %}
-```
-
-The easiest way to use a statement is through the `run_query macro`. For the first version, let's check what we get back from the database, by logging the results to the command line using the `log` function.
-
-The command line gives us back the following:
-
-```command
-| column         | data_type |
-| -------------- | --------- |
-| payment_method | Text      |
-```
-
-This is an Agate table, a Python Library class. To get the payment methods back as a list, we need to do some further transformation.
-
-```SQL
-{% macro get_payment_methods() %}
-
-{% set payment_methods_query %}
-select distinct
-payment_method
-from {{ ref('raw_payments') }}
-order by 1
-{% endset %}
-
-{% set results = run_query(payment_methods_query) %}
-
-{% if execute %}
-{# Return the first column #}
-{% set results_list = results.columns[0].values() %}
-{% else %}
-{% set results_list = [] %}
-{% endif %}
-
-{{ return(results_list) }}
-
-{% endmacro %}
-```
-
-We used the execute variable to ensure that the code runs during the `parse` stage of dbt (otherwise an error would be thrown).
-
-- Execute dbt run.
-
-## [12 Write modular macros](https://docs.getdbt.com/guides/using-jinja?step=9)
-
-The macro looks great now, but what if we want to use a specific part of the macro in the future?
-
-To do that we must seperate macro into modular pieces, this is a very important coding methodology.
-
-- Seperate SQL into macros/**get_column_values.sql** and macros/**get_payment_methods.sql**:
-
-get_column_values.sql
-```SQL
-{% macro get_column_values(column_name, relation) %}
-
-{% set relation_query %}
-select distinct
-{{ column_name }}
-from {{ relation }}
-order by 1
-{% endset %}
-
-{% set results = run_query(relation_query) %}
-
-{% if execute %}
-{# Return the first column #}
-{% set results_list = results.columns[0].values() %}
-{% else %}
-{% set results_list = [] %}
-{% endif %}
-
-{{ return(results_list) }}
-
-{% endmacro %}
-```
-
-get_payment_methods.sql
-```SQL
-{% macro get_payment_methods() %}
-
-{{ return(get_column_values('payment_method', ref('raw_payments'))) }}
-
-{% endmacro %}
-```
-
-- Execute dbt run.
-
-## [13 Use a macro from a package](https://docs.getdbt.com/guides/using-jinja?step=10)
-
-Another powerful feature macro can do is their ability to be shared across projects. A number of useful dbt macros have already been written in the `dbt-utils` package. Actually the `get_column_values` macro from `dbt-utils` could be used instead of the `get_column_values` macro we wrote ourselves.
-
-Install the `dbt-utils` package in the project.
-
-- Add a file named `packages.yml` in dbt project. This should be at the same level as `dbt_project.yml` file.
-- Paste the following query into the `packages.yml` file we just create:
-
-```SQL
-packages:
-  - git: "https://github.com/dbt-labs/dbt-utils.git"
-    revision: 1.3.0
-```
-`Git` tells DBT where to download the package, and site the git's **tag name** or **branch name** behind `revision`
-
-- Execute `dbt deps`, then dbt would install designated package into ` dbt_packages` directory which is ignore by git in default.
-
-- Paste the following query into the macros/**get_payment_methods.sql** file, in order to update the model to use the macro from the package instead:
-
-```SQL
-{%- set payment_methods = dbt_utils.get_column_values(
-    table=ref('raw_payments'),
-    column='payment_method'
-) -%}
-
-select
-order_id,
-{%- for payment_method in payment_methods %}
-sum(case when payment_method = '{{payment_method}}' then amount end) as {{payment_method}}_amount
-{%- if not loop.last %},{% endif -%}
-{% endfor %}
-from {{ ref('raw_payments') }}
-group by 1
-```
-
-- Now we can remove the macros that we built in previous steps.
-
-- Execute dbt run.
 
 Our dbt-macros-packages turtorial ends here, we have learnt the potential of jinja with dbt, macro and package. This is just the tip of the iceberg, but it's enough to prepared anyone planning to dive in to any project that use dbt. Much more, if you want to learn more about what else can the packages do, please check in [dbt-util](https://github.com/dbt-labs/dbt-utils).
