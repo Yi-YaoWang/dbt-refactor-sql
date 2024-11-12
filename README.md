@@ -280,7 +280,7 @@ dbt run -m fct_customer_orders
 
 ## [6 Implement Sources by Translating Hard Coded Table References and Choosing Refactoring Strategies​](https://learn.getdbt.com/learn/course/refactoring-sql-for-modularity/part-2-practice-refactoring-90min/practice-refactoring?page=3)
 
-Now we can look at this __legacy__ code. It has poor readability, hard to maintaince and confusing. The first thing we could do is keep all table and column name in consistency by making letters into lower case.
+Now we can look at this __legacy__ code. It has poor readability, confusing and hard to maintaince. The first thing we could do is keep all table and column name in consistency by making letters into lower case.
 - You can change all the codes by yourself or just copy following codes and replace models/marts/`fct_customer_orders.sql`.
 ```SQL
 with paid_orders as (select orders.id as order_id,
