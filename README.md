@@ -1,4 +1,4 @@
-![image](https://github.com/user-attachments/assets/7a42e425-189c-4e14-95a6-8cb220594a9c)# `dbt-refactor-sql`
+# `dbt-refactor-sql`
 [![Generic badge](https://img.shields.io/badge/dbt-1.8.8-blue.svg)](https://docs.getdbt.com/dbt-cli/cli-overview)
 [![Generic badge](https://img.shields.io/badge/PostgreSQL-16-blue.svg)](https://www.postgresql.org/)
 [![Generic badge](https://img.shields.io/badge/Python-3.11.10-blue.svg)](https://www.python.org/)
@@ -270,9 +270,41 @@ dbt run -m customer_orders
 
 - Make sure everything passed
 
-- - Create a subfolder called `legacy`.
-- Within the legacy folder, create a file called models/legacy/`customer_orders.sql`.
-- Paste the following SQL into the models/legacy/`customer_orders.sql` file, this is the "Legacy SQL" we are trying to refactor.
+- Create a subfolder called `marts`.
+- Copy, paste SQL file and renamed models/legacy/`customer_orders.sql` into models/marts/`fct_customer_orders.sql`
+- From the command line, enter
+
+```
+dbt run -m fct_customer_orders
+```
+
+- As the following turtorial,  you would constantly ensure any changes make to the fct_customer_orders.sql file does not have unintended consequences causing a drift between the old and new versions.
+- Let's import `audit_helper` to make it possible real quick!
+- Create a file `packages.yml` in the root folder
+``` yaml
+packages:
+  - package: dbt-labs/audit_helper
+    version: 0.12.0
+```
+Run `dbt deps` in the command line
+
+- Within the analysis folder, add a new file: `compare_queries.sql`
+Paste the following into the `compare_queries.sql` file:
+```SQL
+{% set old_etl_relation=ref('customer_orders') %} 
+
+{% set dbt_relation=ref('fct_customer_orders') %}  {{ 
+
+audit_helper.compare_relations(
+        a_relation=old_etl_relation,
+        b_relation=dbt_relation,
+        primary_key="order_id"
+    ) }}
+```
+Run `dbt compile` in the command line
+
+You will see 1 line output showing 100% match between the two files, because so far they are exactly the same!
+See more at [dbt_audit_helper](https://hub.getdbt.com/dbt-labs/audit_helper/latest/)
 
 ## [6 Migrate Code into DBT​](https://learn.getdbt.com/learn/course/refactoring-sql-for-modularity/part-2-practice-refactoring-90min/practice-refactoring?page=2)
 
