@@ -17,10 +17,10 @@ This is a `dbt-refactor-sql` quickstart template, that supports PostgreSQL run w
   - [1 Introduction​](#1-introduction)
   - [2 Create a repository and env prepare​](#2-create-a-repository-and-env-prepare)
   - [3 Create a project​](#3-create-a-project)
-  - [4 Connect to PostgreSQL​](#4-connect-to-postgresql)
-  - [5 Build Basic Model](#5-build-basic-model)
-  - [6 Use a for loop in models for repeated SQL​](#6-use-a-for-loop-in-models-for-repeated-sql)
-  - [7 Set Variables​](#7-set-variables)
+  - [4 Prepare PostgreSQL​​](#4-prepare-postgresql)
+  - [5 Migrate Code into DBT​](#5-migrate-code-into-dbt)
+  - [6 Migrate Code into DBT​](#6-migrate-code-into-dbt)
+  - [7 Implement Sources by Translating Hard Coded Table References​](#7-set-variables)
   - [8 Build models on top of other models​​](#8-build-your-models-on-top-of-other-models)
   - [9 Use whitespace control to tidy up compiled code​](#9-use-whitespace-control-to-tidy-up-compiled-code)
   - [10 Use a macro to return payment methods​](#10-use-a-macro-to-return-payment-methods)
@@ -177,8 +177,8 @@ dbt debug
 - Load sample data
  We should copy this data from the `db/seeds` directory.
   - Config seed schema
-  Edit **/dbt_project.yml**
-  ```
+  Copy following codes and pasted at the bottom of ``/dbt_project.yml``
+  ```yaml
   seeds:
   dbt_refactor:
     jaffle_shop:
@@ -203,12 +203,13 @@ dbt debug
 - Verfiy result in database client
 This command will create and insert the `.csv` files to the `dbt_jinja.raw_payments` table
 
-## [5 Build Basic Model](https://learn.getdbt.com/learn/course/refactoring-sql-for-modularity/setting-up-your-environment-15min/setting-up-your-environment?page=3)
+## [5 Migrate Code into DBT​](https://learn.getdbt.com/learn/course/refactoring-sql-for-modularity/part-2-practice-refactoring-90min/practice-refactoring?page=2)
 
 - Open your project in your favorite code editor.
-- Remove example directory, models/__example/*__
-- Create a new SQL file in the models directory, named models/**customer_orders.sql**.
-- Paste the following query into the models/**customer_orders.sql** file.
+- Remove example directory, models/`example/*`
+- Create a subfolder called `legacy`.
+- Within the legacy folder, create a file called models/legacy/`customer_orders.sql`.
+- Paste the following SQL into the models/legacy/`customer_orders.sql` file, this is the "Legacy SQL" we are trying to refactor.
 
 ```SQL
 WITH paid_orders as (select Orders.ID as order_id,
@@ -268,6 +269,10 @@ dbt run -m customer_orders
 ```
 
 - Make sure everything passed
+
+- - Create a subfolder called `legacy`.
+- Within the legacy folder, create a file called models/legacy/`customer_orders.sql`.
+- Paste the following SQL into the models/legacy/`customer_orders.sql` file, this is the "Legacy SQL" we are trying to refactor.
 
 ## [6 Migrate Code into DBT​](https://learn.getdbt.com/learn/course/refactoring-sql-for-modularity/part-2-practice-refactoring-90min/practice-refactoring?page=2)
 
