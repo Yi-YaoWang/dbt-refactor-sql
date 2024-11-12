@@ -188,17 +188,20 @@ dbt debug
   **Windows**
   ```
   copy ..\db\* seeds
-  dbt seed
   ```
 
   **Mac**
   ```
   cp ../db/* seeds
-  dbt seed
   ```
   
+  - Then create two folders, `jaffle_shop` and `stripe`
+  - Put `customers.csv` and `orders.csv` into `jaffle_shop`
+  - Put `payments.csv` into `stripe`
+  - Run `dbt run`
+
 - Verfiy result in database client
-This command will create and insert the `.csv` files to the `dbt_jinja.raw_payments` table
+This command will create and insert the `customers.csv` files to the `dbt_refactor_jaffle_shop.customers` table, `orders.csv` to the `dbt_refactor_jaffle_shop.orders`, `payments.csv` file to the `dbt_refactor_stripe.payments`
 
 ## [5 Migrate Code into DBT​](https://learn.getdbt.com/learn/course/refactoring-sql-for-modularity/part-2-practice-refactoring-90min/practice-refactoring?page=2)
 
